@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local FTP File Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 h-screen overflow-hidden">
+
+<div id="toast" class="fixed top-4 right-4 z-50 hidden bg-gray-800 text-white px-4 py-2 rounded shadow"></div>
+
+<!-- LOGIN VIEW -->
+<div id="loginView" class="flex items-center justify-center h-full">
+  <div class="bg-gray-900 p-6 rounded-xl w-96 space-y-4">
+    <h1 class="text-xl font-bold">Login to Server</h1>
+    <input id="passwordInput" type="password" placeholder="Enter password"
+      class="w-full p-2 rounded bg-gray-800 outline-none" />
+    <button onclick="login()" class="w-full bg-blue-600 p-2 rounded">Login</button>
+
+    <div class="text-center text-sm text-gray-400">OR scan QR</div>
+    <div id="qr-reader" class="w-full"></div>
+  </div>
+</div>
+
+<!-- APP VIEW -->
+<div id="appView" class="hidden h-full flex flex-col">
+
+  <!-- TOP BAR -->
+  <div class="flex items-center gap-2 p-3 bg-gray-900">
+    <button onclick="goBack()" class="bg-gray-800 px-3 py-1 rounded">Back</button>
+    <button onclick="downloadItem()" class="bg-gray-800 px-3 py-1 rounded">Download</button>
+    <button onclick="triggerUpload()" class="bg-gray-800 px-3 py-1 rounded">Upload</button>
+    <button onclick="deleteItem()" class="bg-red-600 px-3 py-1 rounded">Delete</button>
+    <button onclick="openItem()" class="bg-gray-800 px-3 py-1 rounded">Open</button>
+
+    <input id="pathBar" class="ml-auto bg-gray-800 px-2 py-1 rounded w-1/3" placeholder="/path..." />
+    <button onclick="goToPath()" class="bg-blue-600 px-3 py-1 rounded">Go</button>
+
+    <button onclick="logout()" class="bg-gray-700 px-3 py-1 rounded">Logout</button>
+  </div>
+
+  <!-- TABLE -->
+  <div class="flex-1 overflow-auto p-3">
+    <table class="w-full text-sm">
+      <thead class="text-left text-gray-400">
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Size</th>
+          <th>Created</th>
+          <th>Modified</th>
+        </tr>
+      </thead>
+      <tbody id="fileTable"></tbody>
+    </table>
+  </div>
+
+  <!-- UPLOAD -->
+  <input type="file" id="fileInput" class="hidden" onchange="uploadFile(event)" />
+
+  <div class="p-2">
+    <div class="w-full bg-gray-800 h-2 rounded">
+      <div id="progress" class="bg-green-500 h-2 w-0"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let baseUrl = "";
+let currentPath = "";
+let selectedItem = null;
+let historyStack = [];
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.innerText = msg;
+  t.classList.remove("hidden");
+  setTimeout(() => t.classList.add("hidden"), 2000);
+}
+
+async function login(passwordOverride=null) {
+  const password = passwordOverride || document.getElementById("passwordInput").value;
+
+  const res = await fetch("/login", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({password})
+  });
+
+  const data = await res.json();
+
+  if (data.success) {
+    document.getElementById("loginView").classList.add("hidden");
+    document.getElementById("appView").classList.remove("hidden");
+    toast("Login success");
+    fetchFiles("");
+  } else {
+    toast(data.message);
+  }
+}
+
+async function fetchFiles(path) {
+  currentPath = path;
+  document.getElementById("pathBar").value = path;
+
+  const res = await fetch(`/api/${path}`);
+
+  if (res.status === 401) {
+    document.getElementById("appView").classList.add("hidden");
+    document.getElementById("loginView").classList.remove("hidden");
+    return;
+  }
+
+  const data = await res.json();
+
+  const tbody = document.getElementById("fileTable");
+  tbody.innerHTML = "";
+
+  data.forEach(item => {
+    const row = document.createElement("tr");
+    row.className = "hover:bg-gray-800 cursor-pointer";
+
+    row.innerHTML = `
+      <td>${item.name}</td>
+      <td>${item.type}</td>
+      <td>${item.size || "-"}</td>
+      <td>${item.created}</td>
+      <td>${item.modified}</td>
+    `;
+
+    row.onclick = () => {
+      selectedItem = item;
+      document.querySelectorAll("tr").forEach(r => r.classList.remove("bg-gray-700"));
+      row.classList.add("bg-gray-700");
+    };
+
+    row.ondblclick = () => {
+      if (item.type === "dir") {
+        historyStack.push(currentPath);
+        fetchFiles(currentPath + "/" + item.name);
+      } else {
+        window.open(`/api/${currentPath}/${item.name}`, "_blank");
+      }
+    };
+
+    tbody.appendChild(row);
+  });
+}
+
+function goBack() {
+  const prev = historyStack.pop();
+  if (prev !== undefined) fetchFiles(prev);
+}
+
+function goToPath() {
+  const path = document.getElementById("pathBar").value;
+  fetchFiles(path);
+}
+
+function triggerUpload() {
+  document.getElementById("fileInput").click();
+}
+
+async function uploadFile(e) {
+  const file = e.target.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const xhr = new XMLHttpRequest();
+
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      const percent = (e.loaded / e.total) * 100;
+      document.getElementById("progress").style.width = percent + "%";
+    }
+  };
+
+  xhr.onload = () => {
+    toast("Upload complete");
+    fetchFiles(currentPath);
+    document.getElementById("progress").style.width = "0%";
+  };
+
+  xhr.open("POST", `/api/${currentPath}`);
+  xhr.send(formData);
+}
+
+async function deleteItem() {
+  if (!selectedItem) return;
+
+  await fetch(`/api/${currentPath}/${selectedItem.name}`, {
+    method: "DELETE"
+  });
+
+  toast("Deleted");
+  fetchFiles(currentPath);
+}
+
+function downloadItem() {
+  if (!selectedItem) return;
+  window.open(`/download/${currentPath}/${selectedItem.name}`, "_blank");
+}
+
+function openItem() {
+  if (!selectedItem) return;
+
+  if (selectedItem.type === "file") {
+    window.open(`/api/${currentPath}/${selectedItem.name}`, "_blank");
+  }
+}
+
+async function logout() {
+  await fetch("/logout", {method:"POST"});
+  location.reload();
+}
+
+// QR Scanner
+function startQR() {
+  const scanner = new Html5Qrcode("qr-reader");
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 10 },
+    (decodedText) => {
+      scanner.stop();
+      login(decodedText);
+    }
+  );
+}
+
+startQR();
+</script>
+
+</body>
+</html>
+
+
