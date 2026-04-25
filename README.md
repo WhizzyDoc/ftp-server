@@ -9,7 +9,7 @@ This project allows devices connected to the same WiFi network to:
 
 ## 🚀 Features
 
---- ### 🔐 Security & Access Control
+### 🔐 Security & Access Control
 - Random password generated at runtime
 - QR code (or ASCII QR) login support
 - IP-based session tracking
@@ -17,7 +17,7 @@ This project allows devices connected to the same WiFi network to:
 - Failed login protection (auto-block after 4 attempts)
 - Only authenticated users can access files
 
---- ### 📂 File Management
+### 📂 File Management
 - Browse directories recursively
 - Open files directly in browser
 - Upload files (with progress tracking)
@@ -25,24 +25,25 @@ This project allows devices connected to the same WiFi network to:
 - Download folders as ZIP (no server storage)
 - Delete files and directories (recursive)
 
---- ### 🖥️ User Interface
+### 🖥️ User Interface
 - Dark-mode modern file manager (Tailwind CSS)
 - Table view (name, type, size)
 - Click to select, double-click to open
 - Path navigation + search bar
 - Toast notifications
 - QR scanner login support (camera-based)
---- ### 📡 Networking
+
+### 📡 Networking
 - Runs on local IPv4 address
 - Accessible by any device on same WiFi
 - No internet dependency
 
---- ### 🖥️ Admin Interface
+### 🖥️ Admin Interface
 - Live connection management (view, block, unblock, logout)
 - Password reset (automatically logs out all active users)
 - Live activity log viewing (polling request, rather than websockets)
 
---- ### 📜 Logging
+### 📜 Logging
 - Logs every request:
 - IP address
 - endpoint accessed
@@ -50,6 +51,7 @@ This project allows devices connected to the same WiFi network to:
 - timestamp
 
 ## 📦 Project Structure 
+<pre>
 project/
     |-- logs/ # log files directory
     ├── main.py # Backend server 
@@ -57,6 +59,7 @@ project/
     |── index.html # Frontend UI
     ├── requirements.txt    # project dependencies
     └── README.md
+</pre>
 
 ## ⚙️ Requirements
 ### Install Python Dependencies
@@ -122,7 +125,7 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -node
 On another device connected to the same WiFi:
 
 - Open your web browser
-- Enter: http://<IP_ADDRESS>:<PORT> (or https: if secure context)
+- Enter: http://<ip_address>:<port> (or https: if secure context)
 - Example:http://192.168.1.5:5000 
 - Login using: Password OR QR scan (only available for secure connection)
 - 4 consecutive failed login attempts results in automatic IP blockage (until admin unblocks)
@@ -132,14 +135,14 @@ On another device connected to the same WiFi:
 Admin interface can only be accessed on the same device running the server
 
 - Open your web browser
-- Enter: http://127.0.0.1:<PORT> (or https: if secure context)
+- Enter: http://127.0.0.1:<port> (or https: if secure context)
 - Example:http://127.0.0.1:5000 
 - No password required. Only security measure in place is to restrict access to the same device running the server (possible improvement by adding password protection)
 
 🧠 API Overview
 
 | Method | Endpoint | Description |
------------------------------------
+|--------|----------|-------------|
 | GET | / | User Interface page |
 | GET | /session | Fetch user login status |
 | POST | /login | Authenticate user |
