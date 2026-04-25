@@ -7,6 +7,7 @@ import io
 import threading
 from datetime import datetime
 from functools import wraps
+import base64
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, send_file
 import qrcode
@@ -19,12 +20,13 @@ if not os.path.exists(LOG_DIR):
 
 
 class LocalFTPServer:
-    def __init__(self, root_dir, port=5000, max_connections=10):
+    def __init__(self, root_dir, port=5000, max_connections=10, secure=False):
         self.app = Flask(__name__)
 
         self.root_dir = os.path.abspath(root_dir)
         self.port = port
         self.max_connections = max_connections
+        self.secure = secure
 
         # Security / session tracking
         self.active_connections = {}   # ip -> {info}
@@ -73,6 +75,18 @@ class LocalFTPServer:
             if ip not in self.active_connections:
                 return jsonify({"error": "Unauthorized"}), 401
 
+            return func(*args, **kwargs)
+        return wrapper
+    
+    def admin_auth_required(self, func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            ip = request.remote_addr
+    
+            # Allow only localhost
+            if ip not in ("127.0.0.1", "::1"):
+                return jsonify({"error": "Unauthorized Access"}), 403
+    
             return func(*args, **kwargs)
         return wrapper
 
@@ -172,6 +186,89 @@ class LocalFTPServer:
     # Routes
     # -------------------------
     def _setup_routes(self):
+        # ---------------- ADMIN ROUTES ----------------
+        @self.app.route("/admin", methods=["GET"])
+        @self.admin_auth_required
+        def serve_admin():
+            return send_from_directory(os.getcwd(), "admin.html")
+        
+        # Server info
+        @self.app.route("/admin/info")
+        @self.admin_auth_required
+        def admin_info():
+            qr = qrcode.make(self.password)
+            buf = io.BytesIO()
+            qr.save(buf, format='PNG')
+            encoded = base64.b64encode(buf.getvalue()).decode()
+            return jsonify({
+                "ip": self._get_local_ip(),
+                "port": self.port,
+                "active": len(self.active_connections),
+                "qr": f"data:image/png;base64,{encoded}",
+                "password": self.password,
+                "root_directory": self.root_dir
+            })
+        
+        # Connections
+        @self.app.route("/admin/connections")
+        @self.admin_auth_required
+        def admin_connections():
+            return jsonify(list(self.active_connections.values()))
+        
+        # Block/unblock
+        @self.app.route("/admin/block/<ip>", methods=["POST"])
+        @self.admin_auth_required
+        def block_ip(ip):
+            self.blocked_ips.add(ip)
+            self.active_connections.pop(ip, None)
+            return "ok"
+        
+        @self.app.route("/admin/unblock/<ip>", methods=["POST"])
+        @self.admin_auth_required
+        def unblock_ip(ip):
+            self.blocked_ips.discard(ip)
+            return "ok"
+        
+        # Logout
+        @self.app.route("/admin/logout/<ip>", methods=["POST"])
+        @self.admin_auth_required
+        def admin_logout(ip):
+            self.active_connections.pop(ip, None)
+            return "ok"
+        
+        # Blocked list
+        @self.app.route("/admin/blocked")
+        @self.admin_auth_required
+        def admin_blocked():
+            return jsonify(list(self.blocked_ips))
+        
+        # Reset password
+        @self.app.route("/admin/reset-password", methods=["POST"])
+        @self.admin_auth_required
+        def reset_password():
+            self.password = self._generate_password()
+            self.active_connections = {}
+            """
+            qr = qrcode.make(self.password)
+            buf = io.BytesIO()
+            qr.save(buf, format='PNG')
+            encoded = base64.b64encode(buf.getvalue()).decode()
+            """
+            return jsonify({
+                "message": "Password reset successfully. All active connections disabled.",
+                #"qr": f"data:image/png;base64,{encoded}"
+            })
+        
+        # Logs
+        @self.app.route("/admin/logs")
+        @self.admin_auth_required
+        def admin_logs():
+            date = request.args.get("date")
+            path = os.path.join("logs", f"server_logs_{date}.txt")
+            if not os.path.exists(path): return ""
+            with open(path) as f:
+                return f.read()
+            
         # ---------------- ROOT (Serve UI) ----------------
         @self.app.route("/", methods=["GET"])
         def serve_index():
@@ -299,6 +396,7 @@ class LocalFTPServer:
         @self._auth_required
         def download(req_path):
             full_path = self._safe_path(req_path)
+            self._log(f"DOWNLOAD: {full_path} by {self._get_ip()}")
 
             if os.path.isdir(full_path):
                 zip_data = self._zip_dir(req_path)
@@ -317,6 +415,7 @@ class LocalFTPServer:
         print(f"Port: {self.port if self.port else 'AUTO'}")
         print(f"Root Directory: {self.root_dir}")
         print(f"Max Connections: {self.max_connections}")
+        print(f"Secure Connection: {self.secure}")
         print(f"PASSWORD: {self.password}")
         # QR Code
         print("\nScan this QR code (or use password):\n")
@@ -325,12 +424,19 @@ class LocalFTPServer:
         qr.make(fit=True)
         qr.print_ascii(invert=True)
         print("======================================\n")
-
-        self.app.run(
+        
+        if self.secure:
+            self.app.run(
+                host="0.0.0.0",
+                port=self.port,
+                threaded=True,
+                ssl_context=("cert.pem", "key.pem")
+            )
+        else:
+            self.app.run(
             host="0.0.0.0",
             port=self.port,
-            threaded=True,
-            #ssl_context="adhoc"
+            threaded=True
         )
 
     def _get_local_ip(self):
@@ -356,13 +462,15 @@ if __name__ == "__main__":
     parser.add_argument("directory", help="Root directory to expose")
     parser.add_argument("port", nargs="?", type=int, default=5000)
     parser.add_argument("max_connections", nargs="?", type=int, default=10)
+    parser.add_argument("secure", nargs="?", type=int, default=0)
 
     args = parser.parse_args()
 
     server = LocalFTPServer(
         root_dir=args.directory,
         port=args.port,
-        max_connections=args.max_connections
+        max_connections=args.max_connections,
+        secure=bool(args.secure)
     )
 
     server.start()

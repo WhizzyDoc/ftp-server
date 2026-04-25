@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Admin Panel</title>
+        <script src="/static/tailwind.min.js"></script>
+      <script src="/static/html5-qrcode.min.js"></script>
+        <script src="/static/jquery.min.js"></script>
+    </head>
+<body class="bg-gray-950 text-white">
+    
+    <div id="toast" class="fixed top-4 right-4 z-50 hidden bg-gray-800 text-white px-4 py-2 rounded shadow"></div>
+
+<div class="p-4 space-y-6">
+
+<h1 class="text-2xl font-bold">Admin Dashboard</h1>
+
+<!-- SERVER INFO -->
+<div class="bg-gray-900 p-4 rounded">
+<h2 class="font-semibold">Server Info</h2>
+<div class="flex flex-wrap items-center gap-2 p-3 bg-gray-900">
+    <button class="px-3 py-1">Active Connections: <span id="active">0</span></button>
+    <button class="px-3 py-1">Server IP: <span id="sip"></span></button>
+    <button class="px-3 py-1">Port: <span id="port"></span></button>
+    <button class="px-3 py-1">Root Directory: <span id="root-dir"></span></button>
+    <button class="px-3 py-1">Password: <span id="password"></span></button>
+    <button onclick="resetPassword()" class="bg-blue-600 px-3 py-1 rounded">Reset Password</button>
+</div>
+<img id="qrImg" class="mt-2" />
+</div>
+
+<!-- CONNECTIONS -->
+<div class="bg-gray-900 p-4 rounded">
+<h2 class="font-semibold">Active Connections</h2>
+<div class="flex-1 overflow-auto p-3">
+    <table class="w-full text-sm">
+      <thead class="text-left text-gray-400">
+        <tr>
+          <th>IP Address</th>
+          <th>Browser</th>
+          <th>Time</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="connections"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- BLOCKED IPS -->
+<div class="bg-gray-900 p-4 rounded">
+<h2 class="font-semibold">Blocked IPs</h2>
+<table class="w-full text-sm">
+      <thead class="text-left text-gray-400">
+        <tr>
+          <th>IP Address</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="blocked"></tbody>
+    </table>
+</div>
+
+
+<!-- LOGS -->
+<div class="bg-gray-900 p-4 rounded">
+    <div class="flex space-between items-center gap-2 p-3 bg-gray-900">
+        <h2>Logs</h2>
+        <input type="date" id="logDate" class="ml-auto bg-gray-800 px-2 py-1 rounded w-200" />
+    </div>
+
+<pre id="logs" class="h-64 text-sm overflow-auto bg-black p-2"></pre>
+</div>
+
+</div>
+
+<script src="/static/index.js"></script>
+</body>
+</html>
