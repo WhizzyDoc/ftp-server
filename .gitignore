@@ -54,8 +54,11 @@ cover/
 # Translations
 *.mo
 *.pot
+key.pem
+cert.pem
 
 # Django stuff:
+logs/*
 *.log
 local_settings.py
 db.sqlite3
