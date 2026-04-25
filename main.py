@@ -7,13 +7,19 @@ import io
 import threading
 from datetime import datetime
 from functools import wraps
-
+from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, send_file
 import qrcode
 
+BASE_DIR = Path(__file__).resolve().parent
+
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
 
 class LocalFTPServer:
-    def __init__(self, root_dir, port=0, max_connections=10):
+    def __init__(self, root_dir, port=5000, max_connections=10):
         self.app = Flask(__name__)
 
         self.root_dir = os.path.abspath(root_dir)
@@ -29,7 +35,9 @@ class LocalFTPServer:
         self.password = self._generate_password()
 
         # Setup logging file
-        self.log_file = os.path.join(self.root_dir, "server_logs.txt")
+        today = datetime.now()
+        today_format = today.strftime("%Y-%m-%d")
+        self.log_file = os.path.join(LOG_DIR, f"server_logs_{today_format}.txt")
 
         self._setup_routes()
 
@@ -44,6 +52,9 @@ class LocalFTPServer:
         return request.remote_addr
 
     def _log(self, message):
+        today = datetime.now()
+        today_format = today.strftime("%Y-%m-%d")
+        self.log_file = os.path.join(LOG_DIR, f"server_logs_{today_format}.txt")
         timestamp = datetime.now().isoformat()
         with open(self.log_file, "a") as f:
             f.write(f"[{timestamp}] {message}\n")
@@ -111,7 +122,9 @@ class LocalFTPServer:
     # File Operations
     # -------------------------
     def _list_dir(self, path=""):
+        #print(path)
         full_path = self._safe_path(path)
+        #print(full_path)
 
         items = []
         for name in os.listdir(full_path):
@@ -159,13 +172,27 @@ class LocalFTPServer:
     # Routes
     # -------------------------
     def _setup_routes(self):
-
+        # ---------------- ROOT (Serve UI) ----------------
+        @self.app.route("/", methods=["GET"])
+        def serve_index():
+            return send_from_directory(os.getcwd(), "index.html")
+         
+        @self.app.route("/session", methods=["GET"])
+        def session_status():
+            ip = self._get_ip()
+            is_logged_in = ip in self.active_connections
+            return jsonify({
+                "logged_in": is_logged_in
+            })
+            
+    	   
         # ---------------- LOGIN ----------------
         @self.app.route("/login", methods=["POST"])
         def login():
             ip = self._get_ip()
             data = request.json or {}
             password = data.get("password")
+            print(password)
 
             success, msg = self._login(ip, password)
 
@@ -180,6 +207,24 @@ class LocalFTPServer:
             return jsonify({"message": "Logged out"})
 
         # ---------------- FILE LIST ----------------
+        @self.app.route("/api", methods=["GET"])
+        @self._auth_required
+        def get_root():
+            full_path = os.path.abspath(self.root_dir)
+            try:
+                if os.path.isdir(full_path):
+                    return jsonify(self._list_dir())
+
+                return send_from_directory(
+                    os.path.dirname(full_path),
+                    os.path.basename(full_path),
+                    as_attachment=False
+                )
+
+            except Exception as e:
+                print(e)
+                return jsonify({"error": str(e)}), 400
+                
         @self.app.route("/api/<path:req_path>", methods=["GET"])
         @self._auth_required
         def get_files(req_path):
@@ -199,6 +244,25 @@ class LocalFTPServer:
                 return jsonify({"error": str(e)}), 400
 
         # ---------------- UPLOAD ----------------
+        @self.app.route("/api", methods=["POST"])
+        @self._auth_required
+        def upload_to_root():
+            try:
+                full_path = os.path.abspath(self.root_dir)
+                
+                if not os.path.isdir(full_path):
+                    return jsonify({"error": "Not a directory"}), 400
+
+                file = request.files["file"]
+                save_path = os.path.join(full_path, file.filename)
+                file.save(save_path)
+
+                self._log(f"UPLOAD: {save_path} from {self._get_ip()}")
+                return jsonify({"message": "Uploaded"})
+
+            except Exception as e:
+                return jsonify({"error": str(e)}), 400
+            
         @self.app.route("/api/<path:req_path>", methods=["POST"])
         @self._auth_required
         def upload(req_path):
@@ -217,6 +281,7 @@ class LocalFTPServer:
 
             except Exception as e:
                 return jsonify({"error": str(e)}), 400
+                
 
         # ---------------- DELETE ----------------
         @self.app.route("/api/<path:req_path>", methods=["DELETE"])
@@ -253,16 +318,20 @@ class LocalFTPServer:
         print(f"Root Directory: {self.root_dir}")
         print(f"Max Connections: {self.max_connections}")
         print(f"PASSWORD: {self.password}")
-
         # QR Code
-        qr = qrcode.make(self.password)
-        qr_path = os.path.join(self.root_dir, "password_qr.png")
-        qr.save(qr_path)
-
-        print(f"QR Code saved at: {qr_path}")
+        print("\nScan this QR code (or use password):\n")
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(self.password)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
         print("======================================\n")
 
-        self.app.run(host="0.0.0.0", port=self.port, threaded=True)
+        self.app.run(
+            host="0.0.0.0",
+            port=self.port,
+            threaded=True,
+            #ssl_context="adhoc"
+        )
 
     def _get_local_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -285,7 +354,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Local FTP Server")
 
     parser.add_argument("directory", help="Root directory to expose")
-    parser.add_argument("port", nargs="?", type=int, default=0)
+    parser.add_argument("port", nargs="?", type=int, default=5000)
     parser.add_argument("max_connections", nargs="?", type=int, default=10)
 
     args = parser.parse_args()
